@@ -195,6 +195,9 @@ export default function ControlPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="__ALL__">
+                <span className="mr-1.5 opacity-60">📢</span> All Nodes (Broadcast)
+              </SelectItem>
               {nodeIds.map(id => (
                 <SelectItem key={id} value={id}>{id}</SelectItem>
               ))}
