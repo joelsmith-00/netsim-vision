@@ -73,6 +73,21 @@ export default function ControlPanel() {
         </div>
       </div>
 
+      {/* Topology description */}
+      <motion.div
+        key={state.topology}
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        transition={{ duration: 0.3 }}
+        className="mb-1 flex items-start gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10"
+      >
+        <span className="text-primary text-sm mt-0.5">ℹ</span>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <span className="text-foreground font-semibold">{TOPOLOGIES.find(t => t.value === state.topology)?.label}:</span>{' '}
+          {TOPOLOGIES.find(t => t.value === state.topology)?.desc}
+        </p>
+      </motion.div>
+
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 items-end">
         {/* Topology */}
         <div className="space-y-1.5">
