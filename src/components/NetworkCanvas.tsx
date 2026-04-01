@@ -1,4 +1,4 @@
-import { useMemo, useCallback } from 'react';
+import { useMemo, useCallback, useEffect, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -15,7 +15,7 @@ import {
 import '@xyflow/react/dist/style.css';
 import { useSim } from '@/context/SimContext';
 import { generateTopology } from '@/lib/topologies';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 
 function NetworkNode({ data }: { data: { label: string; status: 'active' | 'failed' | 'source' | 'dest' | 'path' | 'default' } }) {
   const styles: Record<string, string> = {
@@ -41,6 +41,56 @@ const nodeTypes: NodeTypes = { network: NetworkNode };
 export default function NetworkCanvas() {
   const { state, dispatch } = useSim();
   const topo = useMemo(() => generateTopology(state.topology, state.nodeCount), [state.topology, state.nodeCount]);
+
+  // Packet animation state
+  const [packetPos, setPacketPos] = useState<{ x: number; y: number } | null>(null);
+  const [packetStep, setPacketStep] = useState(-1);
+
+  const nodePositionMap = useMemo(() => {
+    const map: Record<string, { x: number; y: number }> = {};
+    for (const n of topo.nodes) {
+      map[n.id] = { x: n.x + 24, y: n.y + 24 }; // center of 48px node
+    }
+    return map;
+  }, [topo]);
+
+  // Animate packet along the active path
+  useEffect(() => {
+    if (!state.isRunning || state.activePath.length < 2) {
+      setPacketPos(null);
+      setPacketStep(-1);
+      return;
+    }
+
+    const path = state.activePath;
+    let step = 0;
+    const stepDelay = 600 / state.speed;
+
+    // Start at source
+    const src = nodePositionMap[path[0]];
+    if (src) setPacketPos({ x: src.x, y: src.y });
+    setPacketStep(0);
+
+    const interval = setInterval(() => {
+      step++;
+      if (step >= path.length) {
+        clearInterval(interval);
+        // Keep packet at destination briefly then hide
+        setTimeout(() => {
+          setPacketPos(null);
+          setPacketStep(-1);
+        }, 400);
+        return;
+      }
+      const pos = nodePositionMap[path[step]];
+      if (pos) {
+        setPacketPos({ x: pos.x, y: pos.y });
+        setPacketStep(step);
+      }
+    }, stepDelay);
+
+    return () => clearInterval(interval);
+  }, [state.isRunning, state.activePath, state.speed, nodePositionMap]);
 
   const getNodeStatus = useCallback((id: string) => {
     if (state.failedNodes.has(id)) return 'failed';
@@ -119,6 +169,27 @@ export default function NetworkCanvas() {
           Click nodes/edges to toggle failures
         </span>
       </div>
+
+      {/* Animated packet overlay */}
+      <AnimatePresence>
+        {packetPos && (
+          <motion.div
+            key="packet"
+            className="absolute z-20 pointer-events-none"
+            animate={{ left: packetPos.x - 10, top: packetPos.y - 10 }}
+            transition={{ type: 'spring', stiffness: 200, damping: 25, mass: 0.5 }}
+            exit={{ opacity: 0, scale: 0 }}
+          >
+            <div className="relative w-5 h-5 flex items-center justify-center">
+              <div className="absolute inset-0 rounded-full bg-primary/40 animate-ping" />
+              <div className="w-4 h-4 rounded-sm bg-gradient-to-br from-primary to-accent shadow-[0_0_12px_hsl(270_60%_60%/0.7)] flex items-center justify-center rotate-45">
+                <span className="text-[7px] font-bold text-white -rotate-45">📦</span>
+              </div>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
       <ReactFlow
         nodes={nodes}
         edges={edges}

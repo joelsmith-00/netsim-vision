@@ -6,13 +6,13 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion } from 'framer-motion';
 
-const TOPOLOGIES: { value: TopologyType; label: string; icon: string }[] = [
-  { value: 'star', label: 'Star', icon: '✦' },
-  { value: 'bus', label: 'Bus', icon: '—' },
-  { value: 'ring', label: 'Ring', icon: '○' },
-  { value: 'mesh', label: 'Mesh', icon: '◇' },
-  { value: 'tree', label: 'Tree', icon: '▽' },
-  { value: 'hybrid', label: 'Hybrid', icon: '⬡' },
+const TOPOLOGIES: { value: TopologyType; label: string; icon: string; desc: string }[] = [
+  { value: 'star', label: 'Star', icon: '✦', desc: 'All nodes connect to a central hub. Data routes through the hub — simple but single point of failure.' },
+  { value: 'bus', label: 'Bus', icon: '—', desc: 'All nodes share a single communication line. Collisions can occur when multiple nodes transmit simultaneously.' },
+  { value: 'ring', label: 'Ring', icon: '○', desc: 'Each node connects to exactly two neighbors forming a circle. Data travels sequentially around the ring.' },
+  { value: 'mesh', label: 'Mesh', icon: '◇', desc: 'Nodes are interconnected with multiple paths. Highly redundant — if one link fails, traffic reroutes automatically.' },
+  { value: 'tree', label: 'Tree', icon: '▽', desc: 'Hierarchical structure with parent-child relationships. Data traverses up and down through the tree branches.' },
+  { value: 'hybrid', label: 'Hybrid', icon: '⬡', desc: 'Combines star and mesh patterns. Balances redundancy with efficiency for complex network layouts.' },
 ];
 
 export default function ControlPanel() {
@@ -72,6 +72,21 @@ export default function ControlPanel() {
           </label>
         </div>
       </div>
+
+      {/* Topology description */}
+      <motion.div
+        key={state.topology}
+        initial={{ opacity: 0, height: 0 }}
+        animate={{ opacity: 1, height: 'auto' }}
+        transition={{ duration: 0.3 }}
+        className="mb-1 flex items-start gap-2 px-3 py-2 rounded-lg bg-primary/5 border border-primary/10"
+      >
+        <span className="text-primary text-sm mt-0.5">ℹ</span>
+        <p className="text-[11px] text-muted-foreground leading-relaxed">
+          <span className="text-foreground font-semibold">{TOPOLOGIES.find(t => t.value === state.topology)?.label}:</span>{' '}
+          {TOPOLOGIES.find(t => t.value === state.topology)?.desc}
+        </p>
+      </motion.div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-7 gap-4 items-end">
         {/* Topology */}
