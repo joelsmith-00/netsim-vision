@@ -234,10 +234,10 @@ export default function ControlPanel() {
         {/* Send Button */}
         <button
           onClick={handleSimulate}
-          disabled={state.isRunning || state.source === state.destination}
+          disabled={state.isRunning || (!isBroadcast && state.source === state.destination)}
           className="h-9 px-5 rounded-lg font-display text-xs font-semibold tracking-wide bg-gradient-to-r from-primary to-primary/80 text-primary-foreground glow-primary disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110 active:scale-[0.98] transition-all duration-200"
         >
-          {state.isRunning ? 'Simulating...' : '▶ Send Packet'}
+          {state.isRunning ? 'Simulating...' : isBroadcast ? '📢 Broadcast' : '▶ Send Packet'}
         </button>
       </div>
     </motion.div>
