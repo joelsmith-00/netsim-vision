@@ -20,34 +20,87 @@ export default function ControlPanel() {
   const topo = generateTopology(state.topology, state.nodeCount);
   const nodeIds = topo.nodes.map(n => n.id);
 
+  const isBroadcast = state.destination === '__ALL__';
+
   const handleSimulate = () => {
     dispatch({ type: 'CLEAR_LOGS' });
     dispatch({ type: 'SET_RUNNING', payload: true });
 
-    const result = runSimulation({
-      source: state.source,
-      destination: state.destination,
-      edges: topo.edges,
-      nodeIds,
-      failedNodes: state.failedNodes,
-      failedLinks: state.failedLinks,
-      congestion: state.congestion,
-      packetSize: state.packetSize,
-      topology: state.topology,
-    });
+    if (isBroadcast) {
+      // Broadcast: send to all other nodes
+      const targets = nodeIds.filter(id => id !== state.source && !state.failedNodes.has(id));
+      const allLogs: import('@/lib/simulation').LogEntry[] = [];
+      let allPaths: string[] = [];
+      let totalLatency = 0;
+      let totalHops = 0;
+      let totalLoss = 0;
+      let totalThroughput = 0;
+      let successCount = 0;
 
-    dispatch({ type: 'SET_ACTIVE_PATH', payload: result.path });
-    dispatch({ type: 'SET_METRICS', payload: { latency: result.latency, throughput: result.throughput, packetLoss: result.packetLoss, hops: result.hops } });
-    dispatch({ type: 'ADD_RESULT', payload: result });
+      allLogs.push({ time: 0, type: 'info', message: `📢 Broadcasting from ${state.source} to ${targets.length} nodes` });
 
-    result.logs.forEach((log, i) => {
-      setTimeout(() => {
-        dispatch({ type: 'ADD_LOGS', payload: [log] });
-        if (i === result.logs.length - 1) {
-          dispatch({ type: 'SET_RUNNING', payload: false });
-        }
-      }, (i + 1) * (400 / state.speed));
-    });
+      targets.forEach((dest) => {
+        const result = runSimulation({
+          source: state.source,
+          destination: dest,
+          edges: topo.edges,
+          nodeIds,
+          failedNodes: state.failedNodes,
+          failedLinks: state.failedLinks,
+          congestion: state.congestion,
+          packetSize: state.packetSize,
+          topology: state.topology,
+        });
+        allPaths = [...new Set([...allPaths, ...result.path])];
+        totalLatency += result.latency;
+        totalHops += result.hops;
+        totalLoss += result.packetLoss;
+        totalThroughput += result.throughput;
+        if (result.success) successCount++;
+        result.logs.forEach(l => allLogs.push(l));
+      });
+
+      const avgLatency = totalLatency / targets.length;
+      const avgLoss = totalLoss / targets.length;
+      allLogs.push({ time: 99, type: 'success', message: `📢 Broadcast complete: ${successCount}/${targets.length} delivered` });
+
+      dispatch({ type: 'SET_ACTIVE_PATH', payload: allPaths });
+      dispatch({ type: 'SET_METRICS', payload: { latency: Math.round(avgLatency * 10) / 10, throughput: Math.round(totalThroughput / targets.length), packetLoss: Math.round(avgLoss), hops: totalHops } });
+
+      allLogs.forEach((log, i) => {
+        setTimeout(() => {
+          dispatch({ type: 'ADD_LOGS', payload: [log] });
+          if (i === allLogs.length - 1) {
+            dispatch({ type: 'SET_RUNNING', payload: false });
+          }
+        }, (i + 1) * (250 / state.speed));
+      });
+    } else {
+      const result = runSimulation({
+        source: state.source,
+        destination: state.destination,
+        edges: topo.edges,
+        nodeIds,
+        failedNodes: state.failedNodes,
+        failedLinks: state.failedLinks,
+        congestion: state.congestion,
+        packetSize: state.packetSize,
+        topology: state.topology,
+      });
+
+      dispatch({ type: 'SET_ACTIVE_PATH', payload: result.path });
+      dispatch({ type: 'SET_METRICS', payload: { latency: result.latency, throughput: result.throughput, packetLoss: result.packetLoss, hops: result.hops } });
+      dispatch({ type: 'ADD_RESULT', payload: result });
+
+      result.logs.forEach((log, i) => {
+        setTimeout(() => {
+          dispatch({ type: 'ADD_LOGS', payload: [log] });
+          if (i === result.logs.length - 1) {
+            dispatch({ type: 'SET_RUNNING', payload: false });
+          }
+        }, (i + 1) * (400 / state.speed));
+      });
+    }
   };
 
   return (
@@ -142,6 +195,9 @@ export default function ControlPanel() {
               <SelectValue />
             </SelectTrigger>
             <SelectContent>
+              <SelectItem value="__ALL__">
+                <span className="mr-1.5 opacity-60">📢</span> All Nodes (Broadcast)
+              </SelectItem>
               {nodeIds.map(id => (
                 <SelectItem key={id} value={id}>{id}</SelectItem>
               ))}
@@ -178,10 +234,10 @@ export default function ControlPanel() {
         {/* Send Button */}
         <button
           onClick={handleSimulate}
-          disabled={state.isRunning || state.source === state.destination}
+          disabled={state.isRunning || (!isBroadcast && state.source === state.destination)}
           className="h-9 px-5 rounded-lg font-display text-xs font-semibold tracking-wide bg-gradient-to-r from-primary to-primary/80 text-primary-foreground glow-primary disabled:opacity-30 disabled:cursor-not-allowed hover:brightness-110 active:scale-[0.98] transition-all duration-200"
         >
-          {state.isRunning ? 'Simulating...' : '▶ Send Packet'}
+          {state.isRunning ? 'Simulating...' : isBroadcast ? '📢 Broadcast' : '▶ Send Packet'}
         </button>
       </div>
     </motion.div>
