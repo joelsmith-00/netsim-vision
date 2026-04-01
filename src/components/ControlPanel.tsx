@@ -6,13 +6,13 @@ import { Switch } from '@/components/ui/switch';
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from '@/components/ui/select';
 import { motion } from 'framer-motion';
 
-const TOPOLOGIES: { value: TopologyType; label: string; icon: string }[] = [
-  { value: 'star', label: 'Star', icon: '✦' },
-  { value: 'bus', label: 'Bus', icon: '—' },
-  { value: 'ring', label: 'Ring', icon: '○' },
-  { value: 'mesh', label: 'Mesh', icon: '◇' },
-  { value: 'tree', label: 'Tree', icon: '▽' },
-  { value: 'hybrid', label: 'Hybrid', icon: '⬡' },
+const TOPOLOGIES: { value: TopologyType; label: string; icon: string; desc: string }[] = [
+  { value: 'star', label: 'Star', icon: '✦', desc: 'All nodes connect to a central hub. Data routes through the hub — simple but single point of failure.' },
+  { value: 'bus', label: 'Bus', icon: '—', desc: 'All nodes share a single communication line. Collisions can occur when multiple nodes transmit simultaneously.' },
+  { value: 'ring', label: 'Ring', icon: '○', desc: 'Each node connects to exactly two neighbors forming a circle. Data travels sequentially around the ring.' },
+  { value: 'mesh', label: 'Mesh', icon: '◇', desc: 'Nodes are interconnected with multiple paths. Highly redundant — if one link fails, traffic reroutes automatically.' },
+  { value: 'tree', label: 'Tree', icon: '▽', desc: 'Hierarchical structure with parent-child relationships. Data traverses up and down through the tree branches.' },
+  { value: 'hybrid', label: 'Hybrid', icon: '⬡', desc: 'Combines star and mesh patterns. Balances redundancy with efficiency for complex network layouts.' },
 ];
 
 export default function ControlPanel() {
