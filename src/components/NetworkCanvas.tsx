@@ -17,7 +17,17 @@ import { useSim } from '@/context/SimContext';
 import { generateTopology } from '@/lib/topologies';
 import { motion, AnimatePresence } from 'framer-motion';
 
-function NetworkNode({ data }: { data: { label: string; status: 'active' | 'failed' | 'source' | 'dest' | 'path' | 'default' } }) {
+// Congestion heatmap: green(0) → yellow(0.5) → red(1)
+function heatColor(level: number): string {
+  if (level < 0.5) {
+    const t = level * 2;
+    return `hsl(${120 - t * 80}, 70%, ${50 + t * 5}%)`;
+  }
+  const t = (level - 0.5) * 2;
+  return `hsl(${40 - t * 40}, ${75 + t * 15}%, ${55 - t * 10}%)`;
+}
+
+function NetworkNode({ data }: { data: { label: string; status: string; congestionLevel?: number } }) {
   const styles: Record<string, string> = {
     active: 'bg-success/20 border-success shadow-[0_0_20px_hsl(155_65%_48%/0.4)]',
     failed: 'bg-destructive/20 border-destructive shadow-[0_0_20px_hsl(0_72%_55%/0.4)]',
@@ -27,11 +37,25 @@ function NetworkNode({ data }: { data: { label: string; status: 'active' | 'fail
     default: 'bg-muted/60 border-border/60 hover:border-primary/40',
   };
 
+  const heatStyle = data.congestionLevel !== undefined && data.congestionLevel > 0 ? {
+    boxShadow: `0 0 ${12 + data.congestionLevel * 15}px ${heatColor(data.congestionLevel)}`,
+    borderColor: heatColor(data.congestionLevel),
+  } : {};
+
   return (
-    <div className={`relative flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-300 ${styles[data.status]}`}>
+    <div
+      className={`relative flex items-center justify-center w-12 h-12 rounded-xl border transition-all duration-300 ${styles[data.status] || styles.default}`}
+      style={heatStyle}
+    >
       <Handle type="target" position={Position.Top} className="!bg-primary/60 !border-none !w-1.5 !h-1.5" />
       <Handle type="source" position={Position.Bottom} className="!bg-primary/60 !border-none !w-1.5 !h-1.5" />
       <span className="font-display text-[11px] font-bold text-foreground">{data.label}</span>
+      {data.congestionLevel !== undefined && data.congestionLevel > 0.3 && (
+        <div className="absolute -top-1 -right-1 w-3 h-3 rounded-full text-[6px] flex items-center justify-center font-bold"
+          style={{ background: heatColor(data.congestionLevel), color: '#000' }}>
+          {Math.round(data.congestionLevel * 100)}
+        </div>
+      )}
     </div>
   );
 }
@@ -42,31 +66,50 @@ export default function NetworkCanvas() {
   const { state, dispatch } = useSim();
   const topo = useMemo(() => generateTopology(state.topology, state.nodeCount), [state.topology, state.nodeCount]);
 
-  // Packet animation state
   const [packetPos, setPacketPos] = useState<{ x: number; y: number } | null>(null);
   const [packetStep, setPacketStep] = useState(-1);
+  const [congestionLevels, setCongestionLevels] = useState<Record<string, number>>({});
 
   const nodePositionMap = useMemo(() => {
     const map: Record<string, { x: number; y: number }> = {};
     for (const n of topo.nodes) {
-      map[n.id] = { x: n.x + 24, y: n.y + 24 }; // center of 48px node
+      map[n.id] = { x: n.x + 24, y: n.y + 24 };
     }
     return map;
   }, [topo]);
 
-  // Animate packet along the active path
+  // Simulate congestion levels when congestion is on
+  useEffect(() => {
+    if (!state.congestion) {
+      setCongestionLevels({});
+      return;
+    }
+    const interval = setInterval(() => {
+      const levels: Record<string, number> = {};
+      for (const n of topo.nodes) {
+        if (state.failedNodes.has(n.id)) {
+          levels[n.id] = 0;
+        } else if (state.activePath.includes(n.id)) {
+          levels[n.id] = 0.5 + Math.random() * 0.5;
+        } else {
+          levels[n.id] = Math.random() * 0.4;
+        }
+      }
+      setCongestionLevels(levels);
+    }, 1500);
+    return () => clearInterval(interval);
+  }, [state.congestion, topo.nodes, state.activePath, state.failedNodes]);
+
+  // Animate packet along path
   useEffect(() => {
     if (!state.isRunning || state.activePath.length < 2) {
       setPacketPos(null);
       setPacketStep(-1);
       return;
     }
-
     const path = state.activePath;
     let step = 0;
     const stepDelay = 600 / state.speed;
-
-    // Start at source
     const src = nodePositionMap[path[0]];
     if (src) setPacketPos({ x: src.x, y: src.y });
     setPacketStep(0);
@@ -75,20 +118,12 @@ export default function NetworkCanvas() {
       step++;
       if (step >= path.length) {
         clearInterval(interval);
-        // Keep packet at destination briefly then hide
-        setTimeout(() => {
-          setPacketPos(null);
-          setPacketStep(-1);
-        }, 400);
+        setTimeout(() => { setPacketPos(null); setPacketStep(-1); }, 400);
         return;
       }
       const pos = nodePositionMap[path[step]];
-      if (pos) {
-        setPacketPos({ x: pos.x, y: pos.y });
-        setPacketStep(step);
-      }
+      if (pos) { setPacketPos({ x: pos.x, y: pos.y }); setPacketStep(step); }
     }, stepDelay);
-
     return () => clearInterval(interval);
   }, [state.isRunning, state.activePath, state.speed, nodePositionMap]);
 
@@ -104,8 +139,8 @@ export default function NetworkCanvas() {
     id: n.id,
     type: 'network',
     position: { x: n.x, y: n.y },
-    data: { label: n.label, status: getNodeStatus(n.id) },
-  })), [topo, getNodeStatus]);
+    data: { label: n.label, status: getNodeStatus(n.id), congestionLevel: congestionLevels[n.id] || 0 },
+  })), [topo, getNodeStatus, congestionLevels]);
 
   const isEdgeOnPath = useCallback((source: string, target: string) => {
     const p = state.activePath;
@@ -115,32 +150,42 @@ export default function NetworkCanvas() {
     return false;
   }, [state.activePath]);
 
-  const initialEdges: Edge[] = useMemo(() => topo.edges.map(e => ({
-    id: e.id,
-    source: e.source,
-    target: e.target,
-    animated: state.showPaths && isEdgeOnPath(e.source, e.target),
-    style: {
-      stroke: state.failedLinks.has(e.id)
-        ? 'hsl(0, 72%, 55%)'
-        : isEdgeOnPath(e.source, e.target)
-          ? 'hsl(270, 60%, 60%)'
-          : 'hsl(260, 18%, 22%)',
-      strokeWidth: isEdgeOnPath(e.source, e.target) ? 2.5 : 1,
-      strokeDasharray: state.failedLinks.has(e.id) ? '5,5' : undefined,
-    },
-    label: state.showPaths ? `w:${e.weight}` : undefined,
-    labelStyle: { fill: 'hsl(260, 10%, 50%)', fontSize: 10, fontFamily: 'JetBrains Mono' },
-    labelBgStyle: { fill: 'hsl(260, 22%, 9%)', fillOpacity: 0.9 },
-  })), [topo, state.showPaths, state.failedLinks, isEdgeOnPath]);
+  const getEdgeCongestionColor = useCallback((source: string, target: string) => {
+    if (!state.congestion) return undefined;
+    const srcLevel = congestionLevels[source] || 0;
+    const tgtLevel = congestionLevels[target] || 0;
+    const avg = (srcLevel + tgtLevel) / 2;
+    if (avg > 0.2) return heatColor(avg);
+    return undefined;
+  }, [state.congestion, congestionLevels]);
+
+  const initialEdges: Edge[] = useMemo(() => topo.edges.map(e => {
+    const onPath = isEdgeOnPath(e.source, e.target);
+    const congColor = getEdgeCongestionColor(e.source, e.target);
+    return {
+      id: e.id,
+      source: e.source,
+      target: e.target,
+      animated: state.showPaths && onPath,
+      style: {
+        stroke: state.failedLinks.has(e.id)
+          ? 'hsl(0, 72%, 55%)'
+          : onPath
+            ? 'hsl(270, 60%, 60%)'
+            : congColor || 'hsl(260, 18%, 22%)',
+        strokeWidth: onPath ? 2.5 : congColor ? 2 : 1,
+        strokeDasharray: state.failedLinks.has(e.id) ? '5,5' : undefined,
+      },
+      label: state.showPaths ? `w:${e.weight}` : undefined,
+      labelStyle: { fill: 'hsl(260, 10%, 50%)', fontSize: 10, fontFamily: 'JetBrains Mono' },
+      labelBgStyle: { fill: 'hsl(260, 22%, 9%)', fillOpacity: 0.9 },
+    };
+  }), [topo, state.showPaths, state.failedLinks, isEdgeOnPath, getEdgeCongestionColor]);
 
   const [nodes, setNodes, onNodesChange] = useNodesState(initialNodes);
   const [edges, setEdges, onEdgesChange] = useEdgesState(initialEdges);
 
-  useMemo(() => {
-    setNodes(initialNodes);
-    setEdges(initialEdges);
-  }, [initialNodes, initialEdges, setNodes, setEdges]);
+  useMemo(() => { setNodes(initialNodes); setEdges(initialEdges); }, [initialNodes, initialEdges, setNodes, setEdges]);
 
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.id !== state.source && node.id !== state.destination) {
@@ -170,7 +215,28 @@ export default function NetworkCanvas() {
         </span>
       </div>
 
-      {/* Animated packet overlay */}
+      {/* Congestion legend */}
+      {state.congestion && (
+        <div className="absolute top-3 right-14 z-10 flex items-center gap-1.5 bg-card/80 backdrop-blur-sm px-2 py-1 rounded-md border border-border/30">
+          <span className="text-[8px] font-mono text-muted-foreground">Load:</span>
+          <div className="flex gap-0.5">
+            {[0, 0.25, 0.5, 0.75, 1].map(l => (
+              <div key={l} className="w-3 h-2 rounded-sm" style={{ background: heatColor(l) }} />
+            ))}
+          </div>
+          <span className="text-[8px] font-mono text-muted-foreground">Low→High</span>
+        </div>
+      )}
+
+      {/* Failure recovery info */}
+      {(state.failedNodes.size > 0 || state.failedLinks.size > 0) && (
+        <div className="absolute bottom-3 left-4 z-10 bg-destructive/10 backdrop-blur-sm px-3 py-1.5 rounded-md border border-destructive/30">
+          <span className="text-[9px] font-mono text-destructive">
+            ⚠ {state.failedNodes.size} node(s), {state.failedLinks.size} link(s) failed — routes auto-recalculated
+          </span>
+        </div>
+      )}
+
       <AnimatePresence>
         {packetPos && (
           <motion.div
