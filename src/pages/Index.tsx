@@ -4,6 +4,7 @@ import NetworkCanvas from '@/components/NetworkCanvas';
 import LogPanel from '@/components/LogPanel';
 import MetricsPanel from '@/components/MetricsPanel';
 import { motion } from 'framer-motion';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 export default function Index() {
   return (
@@ -59,9 +60,16 @@ export default function Index() {
           </div>
 
           {/* Main content */}
-          <div className="flex-1 grid grid-cols-1 lg:grid-cols-[1fr_340px] gap-4 min-h-0">
-            <NetworkCanvas />
-            <LogPanel />
+          <div className="flex-1 min-h-0">
+            <ResizablePanelGroup direction="horizontal" className="h-full rounded-xl">
+              <ResizablePanel defaultSize={65} minSize={30}>
+                <NetworkCanvas />
+              </ResizablePanel>
+              <ResizableHandle withHandle className="mx-1 bg-border/30 hover:bg-primary/30 transition-colors" />
+              <ResizablePanel defaultSize={35} minSize={20}>
+                <LogPanel />
+              </ResizablePanel>
+            </ResizablePanelGroup>
           </div>
 
           {/* Metrics */}
