@@ -4,6 +4,7 @@ import NetworkCanvas from '@/components/NetworkCanvas';
 import LogPanel from '@/components/LogPanel';
 import MetricsPanel from '@/components/MetricsPanel';
 import { motion } from 'framer-motion';
+import { ResizablePanelGroup, ResizablePanel, ResizableHandle } from '@/components/ui/resizable';
 
 export default function Index() {
   return (
