@@ -8,6 +8,9 @@ import RoutingTableDisplay from '@/components/RoutingTableDisplay';
 import QueueVisualization from '@/components/QueueVisualization';
 import PerformanceDashboard from '@/components/PerformanceDashboard';
 import ExportReport from '@/components/ExportReport';
+import ComparisonHistory from '@/components/ComparisonHistory';
+import ThemeToggle from '@/components/ThemeToggle';
+import GuidedTutorial from '@/components/GuidedTutorial';
 import { motion } from 'framer-motion';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 
@@ -25,7 +28,7 @@ export default function Index() {
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6 }}
-            className="flex items-center gap-4"
+            className="flex items-center gap-3 flex-wrap"
           >
             <div className="flex items-center gap-3">
               <div className="w-9 h-9 rounded-lg bg-gradient-to-br from-primary to-accent flex items-center justify-center shrink-0">
@@ -48,6 +51,8 @@ export default function Index() {
               </div>
             </div>
             <div className="flex-1 h-px bg-gradient-to-r from-border to-transparent" />
+            <GuidedTutorial />
+            <ThemeToggle />
             <ExportReport />
             <div className="flex items-center gap-2">
               <div className="w-1.5 h-1.5 rounded-full bg-success animate-pulse-neon" />
@@ -63,12 +68,9 @@ export default function Index() {
 
           {/* Section 3: Network Canvas + Sidebar */}
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
-            {/* Network Canvas - takes 2/3 */}
             <div className="lg:col-span-2 h-[500px]">
               <NetworkCanvas />
             </div>
-
-            {/* Right sidebar - takes 1/3 */}
             <div className="h-[500px]">
               <Tabs defaultValue="logs" className="h-full flex flex-col">
                 <TabsList className="shrink-0 bg-card/50 border border-border/30 rounded-lg p-0.5 gap-0.5">
@@ -94,6 +96,9 @@ export default function Index() {
             <AlgorithmComparison />
             <PerformanceDashboard />
           </div>
+
+          {/* Section 5: Comparison History */}
+          <ComparisonHistory />
         </div>
       </div>
     </SimProvider>
