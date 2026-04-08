@@ -2,6 +2,9 @@ import React, { createContext, useContext, useReducer, type ReactNode } from 're
 import type { TopologyType } from '@/lib/topologies';
 import type { SimulationResult, LogEntry } from '@/lib/simulation';
 
+export type LatencyProfile = 'lan' | 'wan' | 'satellite' | 'custom';
+export type QosPriority = 'high' | 'medium' | 'low';
+
 interface SimState {
   topology: TopologyType;
   nodeCount: number;
@@ -19,6 +22,14 @@ interface SimState {
   logs: LogEntry[];
   results: SimulationResult[];
   metrics: { latency: number; throughput: number; packetLoss: number; hops: number } | null;
+  // New features
+  stepByStep: boolean;
+  currentStep: number;
+  isPaused: boolean;
+  latencyProfile: LatencyProfile;
+  qosPriority: QosPriority;
+  soundEnabled: boolean;
+  nodeStats: Record<string, { sent: number; received: number; dropped: number }>;
 }
 
 type Action =
@@ -39,7 +50,16 @@ type Action =
   | { type: 'CLEAR_LOGS' }
   | { type: 'ADD_RESULT'; payload: SimulationResult }
   | { type: 'SET_METRICS'; payload: SimState['metrics'] }
-  | { type: 'RESET' };
+  | { type: 'RESET' }
+  // New actions
+  | { type: 'SET_STEP_BY_STEP'; payload: boolean }
+  | { type: 'SET_CURRENT_STEP'; payload: number }
+  | { type: 'SET_PAUSED'; payload: boolean }
+  | { type: 'NEXT_STEP' }
+  | { type: 'SET_LATENCY_PROFILE'; payload: LatencyProfile }
+  | { type: 'SET_QOS_PRIORITY'; payload: QosPriority }
+  | { type: 'SET_SOUND_ENABLED'; payload: boolean }
+  | { type: 'UPDATE_NODE_STATS'; payload: { nodeId: string; field: 'sent' | 'received' | 'dropped' } };
 
 const initial: SimState = {
   topology: 'mesh',
@@ -58,12 +78,19 @@ const initial: SimState = {
   logs: [],
   results: [],
   metrics: null,
+  stepByStep: false,
+  currentStep: -1,
+  isPaused: false,
+  latencyProfile: 'lan',
+  qosPriority: 'medium',
+  soundEnabled: true,
+  nodeStats: {},
 };
 
 function reducer(state: SimState, action: Action): SimState {
   switch (action.type) {
-    case 'SET_TOPOLOGY': return { ...state, topology: action.payload, failedNodes: new Set(), failedLinks: new Set(), activePath: [], logs: [] };
-    case 'SET_NODE_COUNT': return { ...state, nodeCount: action.payload, failedNodes: new Set(), failedLinks: new Set(), activePath: [], logs: [] };
+    case 'SET_TOPOLOGY': return { ...state, topology: action.payload, failedNodes: new Set(), failedLinks: new Set(), activePath: [], logs: [], nodeStats: {} };
+    case 'SET_NODE_COUNT': return { ...state, nodeCount: action.payload, failedNodes: new Set(), failedLinks: new Set(), activePath: [], logs: [], nodeStats: {} };
     case 'SET_SOURCE': return { ...state, source: action.payload };
     case 'SET_DESTINATION': return { ...state, destination: action.payload };
     case 'SET_PACKET_SIZE': return { ...state, packetSize: action.payload };
@@ -88,6 +115,21 @@ function reducer(state: SimState, action: Action): SimState {
     case 'ADD_RESULT': return { ...state, results: [...state.results.slice(-19), action.payload] };
     case 'SET_METRICS': return { ...state, metrics: action.payload };
     case 'RESET': return { ...initial };
+    // New reducers
+    case 'SET_STEP_BY_STEP': return { ...state, stepByStep: action.payload };
+    case 'SET_CURRENT_STEP': return { ...state, currentStep: action.payload };
+    case 'SET_PAUSED': return { ...state, isPaused: action.payload };
+    case 'NEXT_STEP': return { ...state, currentStep: state.currentStep + 1 };
+    case 'SET_LATENCY_PROFILE': return { ...state, latencyProfile: action.payload };
+    case 'SET_QOS_PRIORITY': return { ...state, qosPriority: action.payload };
+    case 'SET_SOUND_ENABLED': return { ...state, soundEnabled: action.payload };
+    case 'UPDATE_NODE_STATS': {
+      const stats = { ...state.nodeStats };
+      const nodeId = action.payload.nodeId;
+      if (!stats[nodeId]) stats[nodeId] = { sent: 0, received: 0, dropped: 0 };
+      stats[nodeId] = { ...stats[nodeId], [action.payload.field]: stats[nodeId][action.payload.field] + 1 };
+      return { ...state, nodeStats: stats };
+    }
     default: return state;
   }
 }
