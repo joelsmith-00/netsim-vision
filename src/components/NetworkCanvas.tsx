@@ -1,4 +1,4 @@
-import { useMemo, useCallback, useEffect, useState } from 'react';
+import { useMemo, useCallback, useEffect, useState, useRef } from 'react';
 import {
   ReactFlow,
   Background,
@@ -16,8 +16,9 @@ import '@xyflow/react/dist/style.css';
 import { useSim } from '@/context/SimContext';
 import { generateTopology } from '@/lib/topologies';
 import { motion, AnimatePresence } from 'framer-motion';
+import NodeTooltip from './NodeTooltip';
+import { useSoundEffects } from '@/hooks/useSoundEffects';
 
-// Congestion heatmap: green(0) → yellow(0.5) → red(1)
 function heatColor(level: number): string {
   if (level < 0.5) {
     const t = level * 2;
@@ -64,11 +65,15 @@ const nodeTypes: NodeTypes = { network: NetworkNode };
 
 export default function NetworkCanvas() {
   const { state, dispatch } = useSim();
+  const { playNodeFail, playHop } = useSoundEffects();
   const topo = useMemo(() => generateTopology(state.topology, state.nodeCount), [state.topology, state.nodeCount]);
 
   const [packetPos, setPacketPos] = useState<{ x: number; y: number } | null>(null);
   const [packetStep, setPacketStep] = useState(-1);
   const [congestionLevels, setCongestionLevels] = useState<Record<string, number>>({});
+  const [trailPositions, setTrailPositions] = useState<{ x: number; y: number; id: number }[]>([]);
+  const [hoveredNode, setHoveredNode] = useState<string | null>(null);
+  const trailCounter = useRef(0);
 
   const nodePositionMap = useMemo(() => {
     const map: Record<string, { x: number; y: number }> = {};
@@ -78,54 +83,84 @@ export default function NetworkCanvas() {
     return map;
   }, [topo]);
 
-  // Simulate congestion levels when congestion is on
+  // Congestion simulation
   useEffect(() => {
-    if (!state.congestion) {
-      setCongestionLevels({});
-      return;
-    }
+    if (!state.congestion) { setCongestionLevels({}); return; }
     const interval = setInterval(() => {
       const levels: Record<string, number> = {};
       for (const n of topo.nodes) {
-        if (state.failedNodes.has(n.id)) {
-          levels[n.id] = 0;
-        } else if (state.activePath.includes(n.id)) {
-          levels[n.id] = 0.5 + Math.random() * 0.5;
-        } else {
-          levels[n.id] = Math.random() * 0.4;
-        }
+        if (state.failedNodes.has(n.id)) levels[n.id] = 0;
+        else if (state.activePath.includes(n.id)) levels[n.id] = 0.5 + Math.random() * 0.5;
+        else levels[n.id] = Math.random() * 0.4;
       }
       setCongestionLevels(levels);
     }, 1500);
     return () => clearInterval(interval);
   }, [state.congestion, topo.nodes, state.activePath, state.failedNodes]);
 
-  // Animate packet along path
+  // Packet animation with trail
   useEffect(() => {
     if (!state.isRunning || state.activePath.length < 2) {
       setPacketPos(null);
       setPacketStep(-1);
       return;
     }
+
+    // Step-by-step mode
+    if (state.stepByStep) {
+      const stepIdx = state.currentStep;
+      if (stepIdx >= 0 && stepIdx < state.activePath.length) {
+        const pos = nodePositionMap[state.activePath[stepIdx]];
+        if (pos) {
+          setPacketPos({ x: pos.x, y: pos.y });
+          setPacketStep(stepIdx);
+          // Add trail
+          if (state.showTrails) {
+            trailCounter.current++;
+            setTrailPositions(prev => [...prev.slice(-20), { x: pos.x, y: pos.y, id: trailCounter.current }]);
+          }
+          if (state.soundEnabled) playHop();
+        }
+        if (stepIdx >= state.activePath.length - 1) {
+          setTimeout(() => {
+            dispatch({ type: 'SET_RUNNING', payload: false });
+            dispatch({ type: 'SET_CURRENT_STEP', payload: -1 });
+            setPacketPos(null);
+            setPacketStep(-1);
+          }, 600);
+        }
+      }
+      return;
+    }
+
     const path = state.activePath;
     let step = 0;
     const stepDelay = 600 / state.speed;
     const src = nodePositionMap[path[0]];
     if (src) setPacketPos({ x: src.x, y: src.y });
     setPacketStep(0);
+    setTrailPositions([]);
 
     const interval = setInterval(() => {
       step++;
       if (step >= path.length) {
         clearInterval(interval);
-        setTimeout(() => { setPacketPos(null); setPacketStep(-1); }, 400);
+        setTimeout(() => { setPacketPos(null); setPacketStep(-1); setTrailPositions([]); }, 400);
         return;
       }
       const pos = nodePositionMap[path[step]];
-      if (pos) { setPacketPos({ x: pos.x, y: pos.y }); setPacketStep(step); }
+      if (pos) {
+        setPacketPos({ x: pos.x, y: pos.y });
+        setPacketStep(step);
+        if (state.soundEnabled) playHop();
+        if (state.showTrails) {
+          trailCounter.current++;
+          setTrailPositions(prev => [...prev.slice(-20), { x: pos.x, y: pos.y, id: trailCounter.current }]);
+        }
+      }
     }, stepDelay);
     return () => clearInterval(interval);
-  }, [state.isRunning, state.activePath, state.speed, nodePositionMap]);
+  }, [state.isRunning, state.activePath, state.speed, nodePositionMap, state.stepByStep, state.currentStep, state.showTrails, state.soundEnabled]);
 
   const getNodeStatus = useCallback((id: string) => {
     if (state.failedNodes.has(id)) return 'failed';
@@ -152,9 +187,7 @@ export default function NetworkCanvas() {
 
   const getEdgeCongestionColor = useCallback((source: string, target: string) => {
     if (!state.congestion) return undefined;
-    const srcLevel = congestionLevels[source] || 0;
-    const tgtLevel = congestionLevels[target] || 0;
-    const avg = (srcLevel + tgtLevel) / 2;
+    const avg = ((congestionLevels[source] || 0) + (congestionLevels[target] || 0)) / 2;
     if (avg > 0.2) return heatColor(avg);
     return undefined;
   }, [state.congestion, congestionLevels]);
@@ -190,12 +223,22 @@ export default function NetworkCanvas() {
   const onNodeClick = useCallback((_: React.MouseEvent, node: Node) => {
     if (node.id !== state.source && node.id !== state.destination) {
       dispatch({ type: 'TOGGLE_FAILED_NODE', payload: node.id });
+      if (state.soundEnabled) playNodeFail();
     }
-  }, [dispatch, state.source, state.destination]);
+  }, [dispatch, state.source, state.destination, state.soundEnabled]);
 
   const onEdgeClick = useCallback((_: React.MouseEvent, edge: Edge) => {
     dispatch({ type: 'TOGGLE_FAILED_LINK', payload: edge.id });
-  }, [dispatch]);
+    if (state.soundEnabled) playNodeFail();
+  }, [dispatch, state.soundEnabled]);
+
+  const onNodeMouseEnter = useCallback((_: React.MouseEvent, node: Node) => {
+    setHoveredNode(node.id);
+  }, []);
+
+  const onNodeMouseLeave = useCallback(() => {
+    setHoveredNode(null);
+  }, []);
 
   return (
     <motion.div
@@ -215,6 +258,20 @@ export default function NetworkCanvas() {
         </span>
       </div>
 
+      {/* Step-by-step controls */}
+      {state.stepByStep && state.isRunning && (
+        <div className="absolute top-3 left-1/2 -translate-x-1/2 z-10 flex items-center gap-2 bg-card/90 backdrop-blur-sm px-3 py-1.5 rounded-lg border border-primary/30">
+          <span className="text-[9px] font-mono text-muted-foreground">Step {state.currentStep + 1}/{state.activePath.length}</span>
+          <button
+            onClick={() => dispatch({ type: 'NEXT_STEP' })}
+            disabled={state.currentStep >= state.activePath.length - 1}
+            className="px-2.5 py-1 rounded-md text-[10px] font-display font-semibold bg-primary text-primary-foreground hover:brightness-110 disabled:opacity-30 transition-all"
+          >
+            Next Step →
+          </button>
+        </div>
+      )}
+
       {/* Congestion legend */}
       {state.congestion && (
         <div className="absolute top-3 right-14 z-10 flex items-center gap-1.5 bg-card/80 backdrop-blur-sm px-2 py-1 rounded-md border border-border/30">
@@ -228,6 +285,26 @@ export default function NetworkCanvas() {
         </div>
       )}
 
+      {/* Latency profile badge */}
+      <div className="absolute bottom-3 right-4 z-10 flex items-center gap-2">
+        <div className="bg-card/80 backdrop-blur-sm px-2 py-1 rounded-md border border-border/30">
+          <span className="text-[8px] font-mono text-muted-foreground">
+            Profile: <span className="text-primary font-semibold uppercase">{state.latencyProfile}</span>
+          </span>
+        </div>
+        {state.qosPriority !== 'medium' && (
+          <div className={`bg-card/80 backdrop-blur-sm px-2 py-1 rounded-md border ${
+            state.qosPriority === 'high' ? 'border-success/30' : 'border-warning/30'
+          }`}>
+            <span className="text-[8px] font-mono text-muted-foreground">
+              QoS: <span className={`font-semibold uppercase ${
+                state.qosPriority === 'high' ? 'text-success' : 'text-warning'
+              }`}>{state.qosPriority}</span>
+            </span>
+          </div>
+        )}
+      </div>
+
       {/* Failure recovery info */}
       {(state.failedNodes.size > 0 || state.failedLinks.size > 0) && (
         <div className="absolute bottom-3 left-4 z-10 bg-destructive/10 backdrop-blur-sm px-3 py-1.5 rounded-md border border-destructive/30">
@@ -237,6 +314,24 @@ export default function NetworkCanvas() {
         </div>
       )}
 
+      {/* Packet trail */}
+      <AnimatePresence>
+        {state.showTrails && trailPositions.map((t, i) => (
+          <motion.div
+            key={t.id}
+            className="absolute z-15 pointer-events-none"
+            initial={{ opacity: 0.6, scale: 1 }}
+            animate={{ opacity: 0, scale: 0.3 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 1.5 }}
+            style={{ left: t.x - 4, top: t.y - 4 }}
+          >
+            <div className="w-2 h-2 rounded-full bg-primary/60 shadow-[0_0_8px_hsl(270_60%_60%/0.5)]" />
+          </motion.div>
+        ))}
+      </AnimatePresence>
+
+      {/* Packet */}
       <AnimatePresence>
         {packetPos && (
           <motion.div
@@ -249,10 +344,25 @@ export default function NetworkCanvas() {
             <div className="relative w-5 h-5 flex items-center justify-center">
               <div className="absolute inset-0 rounded-full bg-primary/40 animate-ping" />
               <div className="w-4 h-4 rounded-sm bg-gradient-to-br from-primary to-accent shadow-[0_0_12px_hsl(270_60%_60%/0.7)] flex items-center justify-center rotate-45">
-                <span className="text-[7px] font-bold text-white -rotate-45">📦</span>
+                <span className="text-[7px] font-bold text-primary-foreground -rotate-45">📦</span>
               </div>
             </div>
           </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* Node tooltip */}
+      <AnimatePresence>
+        {hoveredNode && nodePositionMap[hoveredNode] && (
+          <NodeTooltip
+            nodeId={hoveredNode}
+            status={getNodeStatus(hoveredNode)}
+            congestionLevel={congestionLevels[hoveredNode] || 0}
+            position={nodePositionMap[hoveredNode]}
+            packetsSent={state.nodeStats[hoveredNode]?.sent || 0}
+            packetsReceived={state.nodeStats[hoveredNode]?.received || 0}
+            packetsDropped={state.nodeStats[hoveredNode]?.dropped || 0}
+          />
         )}
       </AnimatePresence>
 
@@ -263,6 +373,8 @@ export default function NetworkCanvas() {
         onEdgesChange={onEdgesChange}
         onNodeClick={onNodeClick}
         onEdgeClick={onEdgeClick}
+        onNodeMouseEnter={onNodeMouseEnter}
+        onNodeMouseLeave={onNodeMouseLeave}
         nodeTypes={nodeTypes}
         fitView
         fitViewOptions={{ padding: 0.3 }}
